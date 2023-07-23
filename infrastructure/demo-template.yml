@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m1.small
+      - m1.large
+    Description: Enter t2.micro, m1.small, or m1.large. Default is t2.micro.
+  SSHKeys:
+    Description: Name of EC2 Login key
+    Type: AWS::EC2::KeyPair::KeyName
+  UserIPAddress:
+    Description: "Please enter your IP address (e.g., 203.0.113.10/32)"
+    Type: String
+
+Mappings: 
+  Regions: 
+    us-east-1: 
+      AMI: "ami-06ca3ca175f37dd66"
+
+Resources:
+  JenkinsServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: !Ref SSHKeys
+      ImageId: !FindInMap
+        - Regions
+        - !Ref "AWS::Region"
+        - AMI
+      AvailabilityZone: us-east-1a
+      SecurityGroups:
+        - !Ref JenkinsSecurityGroup
+      Tags:
+        - Key: "Name"
+          Value: !Join ["-", [Jenkins, EC2, Server, !Ref "AWS::Region"]]
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Install Jenkins
+          sudo yum update –y
+          sudo wget -O /etc/yum.repos.d/jenkins.repo \
+          https://pkg.jenkins.io/redhat-stable/jenkins.repo
+          sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+          sudo yum upgrade
+          sudo dnf install java-11-amazon-corretto -y
+          sudo yum install jenkins -y
+
+          # Start Jenkins service
+          sudo systemctl enable jenkins
+          sudo systemctl start jenkins
+
+  JenkinsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Enable SSH and http to client host
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref UserIPAddress
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref UserIPAddress
+
+
+Outputs:
+  JenkinsEC2:
+    Description: Information about the Jenkins Stack
+    Value: !Sub "http://${JenkinsServer.PublicIp}:8080/"
